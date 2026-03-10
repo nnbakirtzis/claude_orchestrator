@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gesture-orchestrator"
+version = "0.1.0"
+description = "Gesture-powered Claude Code agent orchestrator"
+requires-python = ">=3.10"
+dependencies = [
+    "opencv-python>=4.12.0,<5.0",
+    "mediapipe>=0.10.21,<0.11",
+    "numpy>=1.24,<2.0",
+]
+
+[project.scripts]
+gesture-orchestrator = "gesture_orchestrator.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-mock"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
