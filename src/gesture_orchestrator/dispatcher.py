@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import subprocess
 import threading
 
+from .config import GestureConfig
 from .gestures import GestureType
 
 logger = logging.getLogger(__name__)
@@ -31,8 +33,9 @@ DEFAULT_PROMPTS = {
 
 
 class Dispatcher:
-    def __init__(self, project_dir: str = "."):
+    def __init__(self, project_dir: str = ".", config: GestureConfig | None = None):
         self._project_dir = project_dir
+        self._config = config or GestureConfig(project_dir=project_dir)
         self._lock = threading.Lock()
         self._busy = False
         self._current_thread: threading.Thread | None = None
@@ -41,10 +44,12 @@ class Dispatcher:
     def busy(self) -> bool:
         return self._busy
 
-    def dispatch(self, gesture: GestureType) -> bool:
+    def dispatch(self, gesture: GestureType, prompt: str | None = None) -> bool:
         """
         Dispatch a gesture to the appropriate Claude agent.
         Returns True if dispatched, False if busy or invalid gesture.
+
+        If prompt is provided, it overrides the default prompt for the gesture.
         """
         if gesture == GestureType.NONE:
             return False
@@ -56,19 +61,88 @@ class Dispatcher:
         self._busy = True
         self._lock.release()
 
-        thread = threading.Thread(
-            target=self._run,
-            args=(gesture,),
-            daemon=True,
-        )
+        if self._config.interactive_terminal:
+            thread = threading.Thread(
+                target=self._run_interactive,
+                args=(gesture, prompt),
+                daemon=True,
+            )
+        else:
+            thread = threading.Thread(
+                target=self._run_background,
+                args=(gesture, prompt),
+                daemon=True,
+            )
         thread.start()
         self._current_thread = thread
         return True
 
-    def _run(self, gesture: GestureType) -> None:
-        """Execute the Claude CLI command in a background thread."""
+    def _build_prompt(self, gesture: GestureType, prompt: str | None) -> str:
+        """Resolve the prompt to use for a gesture."""
+        if prompt:
+            return prompt
+        return DEFAULT_PROMPTS.get(gesture, "Help me with this project.")
+
+    def _run_interactive(self, gesture: GestureType, prompt: str | None = None) -> None:
+        """Open an interactive Claude Code terminal window."""
         try:
-            agent_name, prompt = self._resolve(gesture)
+            agent_name, resolved_prompt = self._resolve(gesture, prompt)
+            logger.info("Opening interactive terminal: %s → agent=%s", gesture.name, agent_name)
+
+            launched = self._try_windows_terminal(resolved_prompt)
+            if not launched:
+                launched = self._try_cmd(resolved_prompt)
+
+            if launched:
+                logger.info("Interactive terminal opened for %s", agent_name)
+            else:
+                logger.warning("Could not open interactive terminal, falling back to background")
+                self._run_background(gesture, prompt)
+                return
+        except Exception:
+            logger.exception("Unexpected error launching interactive terminal")
+        finally:
+            # Reset busy shortly after launch (user interacts with the terminal)
+            self._busy = False
+
+    def _try_windows_terminal(self, prompt: str) -> bool:
+        """Try launching via Windows Terminal (wt)."""
+        wt = shutil.which("wt")
+        if not wt:
+            return False
+
+        try:
+            escaped_prompt = prompt.replace('"', '\\"')
+            subprocess.Popen(
+                [
+                    wt, "-d", self._project_dir,
+                    "cmd", "/k",
+                    f'claude -p "{escaped_prompt}"',
+                ],
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            )
+            return True
+        except Exception:
+            logger.exception("Failed to launch Windows Terminal")
+            return False
+
+    def _try_cmd(self, prompt: str) -> bool:
+        """Fallback: open via cmd.exe start command."""
+        try:
+            escaped_prompt = prompt.replace('"', '\\"')
+            subprocess.Popen(
+                f'start cmd /k "cd /d {self._project_dir} && claude -p \\"{escaped_prompt}\\""',
+                shell=True,
+            )
+            return True
+        except Exception:
+            logger.exception("Failed to launch cmd terminal")
+            return False
+
+    def _run_background(self, gesture: GestureType, prompt: str | None = None) -> None:
+        """Execute the Claude CLI command in a background thread (original behavior)."""
+        try:
+            agent_name, resolved_prompt = self._resolve(gesture, prompt)
             agents_json = json.dumps(AGENTS)
 
             cmd = [
@@ -76,7 +150,7 @@ class Dispatcher:
                 "--print",
                 "--agents", agents_json,
                 "--agent", agent_name,
-                prompt,
+                resolved_prompt,
             ]
 
             logger.info("Dispatching %s → agent=%s", gesture.name, agent_name)
@@ -106,14 +180,15 @@ class Dispatcher:
         finally:
             self._busy = False
 
-    def _resolve(self, gesture: GestureType) -> tuple[str, str]:
+    def _resolve(self, gesture: GestureType, prompt: str | None = None) -> tuple[str, str]:
         """Map gesture to (agent_name, prompt)."""
+        resolved_prompt = self._build_prompt(gesture, prompt)
         if gesture == GestureType.PLANNER_ACTIVATE:
-            return "planner", DEFAULT_PROMPTS[gesture]
+            return "planner", resolved_prompt
         elif gesture == GestureType.CODER_ACTIVATE:
-            return "coder", DEFAULT_PROMPTS[gesture]
+            return "coder", resolved_prompt
         elif gesture == GestureType.SYNC_EXECUTE:
-            return "coder", DEFAULT_PROMPTS[gesture]
+            return "coder", resolved_prompt
         else:
             raise ValueError(f"Unknown gesture: {gesture}")
 

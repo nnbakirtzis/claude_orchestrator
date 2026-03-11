@@ -10,7 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "opencv-python>=4.12.0,<5.0",
     "mediapipe>=0.10.21,<0.11",
-    "numpy>=1.24,<2.0",
+    "numpy>=1.24,<3.0",
 ]
 
 [project.scripts]
@@ -18,6 +18,10 @@ gesture-orchestrator = "gesture_orchestrator.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-mock"]
+voice = [
+    "vosk>=0.3.45,<0.4",
+    "sounddevice>=0.4.6,<0.5",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

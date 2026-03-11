@@ -15,6 +15,7 @@ from .detector import HandDetector
 from .dispatcher import Dispatcher
 from .gestures import GestureState, GestureType, classify_gesture
 from .overlay import draw_overlay
+from .smoothing import LandmarkSmoother
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--model", type=str, default=None,
         help="Path to hand_landmarker.task model file (default: auto-detect)",
     )
+    parser.add_argument(
+        "--no-terminal", action="store_true",
+        help="Run Claude agents in background instead of opening a terminal window",
+    )
+    parser.add_argument(
+        "--no-voice", action="store_true",
+        help="Disable voice input for custom prompts",
+    )
+    parser.add_argument(
+        "--voice-model", type=str, default=None,
+        help="Path to Vosk speech recognition model directory",
+    )
+    parser.add_argument(
+        "--voice-timeout", type=float, default=10.0,
+        help="Maximum voice recording duration in seconds (default: 10.0)",
+    )
     return parser.parse_args(argv)
 
 
@@ -69,7 +86,25 @@ def main(argv: list[str] | None = None) -> int:
         debug=args.debug,
         project_dir=args.project_dir,
         model_path=args.model,
+        interactive_terminal=not args.no_terminal,
+        voice_enabled=not args.no_voice,
+        voice_model_path=args.voice_model,
+        voice_timeout=args.voice_timeout,
     )
+
+    # Initialize voice capture if enabled
+    voice_capture = None
+    if config.voice_enabled:
+        try:
+            from .voice import VoiceCapture
+            voice_capture = VoiceCapture(config)
+            if voice_capture.is_available():
+                logger.info("Voice input enabled")
+            else:
+                logger.info("Voice input not available (missing mic or model)")
+                voice_capture = None
+        except ImportError:
+            logger.info("Voice dependencies not installed (vosk/sounddevice), voice disabled")
 
     # Graceful shutdown
     shutdown = False
@@ -84,8 +119,11 @@ def main(argv: list[str] | None = None) -> int:
 
     camera = Camera(config.camera_index, config.frame_width, config.frame_height)
     detector = HandDetector(config, model_path=config.model_path)
-    dispatcher = Dispatcher(config.project_dir)
+    dispatcher = Dispatcher(config.project_dir, config=config)
     state = GestureState()
+
+    # Per-hand landmark smoothers
+    smoothers: dict[str, LandmarkSmoother] = {}
 
     try:
         camera.open()
@@ -103,13 +141,50 @@ def main(argv: list[str] | None = None) -> int:
             # Detect hands
             hands = detector.detect(frame)
 
+            # Apply landmark smoothing per hand
+            for hand in hands:
+                if hand.handedness not in smoothers:
+                    smoothers[hand.handedness] = LandmarkSmoother(
+                        alpha=config.landmark_smoothing_alpha
+                    )
+                hand.landmarks = smoothers[hand.handedness].smooth(hand.landmarks)
+
             # Classify gesture
             triggered = classify_gesture(hands, state, config)
 
             # Dispatch if triggered
             if triggered is not None:
                 logger.info("Gesture triggered: %s", triggered.name)
-                dispatcher.dispatch(triggered)
+
+                prompt = None
+                if voice_capture is not None:
+                    from .overlay import draw_listening_screen
+                    logger.info("Listening for voice command...")
+
+                    partial_text = ""
+
+                    def on_partial(text: str) -> None:
+                        nonlocal partial_text
+                        partial_text = text
+                        if config.show_overlay:
+                            listening_frame = frame.copy()
+                            draw_listening_screen(
+                                listening_frame, partial_text,
+                                0.0, config.voice_timeout,
+                            )
+                            cv2.imshow("Gesture Orchestrator", listening_frame)
+                            cv2.waitKey(1)
+
+                    prompt = voice_capture.listen(
+                        timeout=config.voice_timeout,
+                        on_partial=on_partial,
+                    )
+                    if prompt:
+                        logger.info("Voice command: %s", prompt)
+                    else:
+                        logger.info("No voice input, using default prompt")
+
+                dispatcher.dispatch(triggered, prompt=prompt)
 
             # Overlay
             if config.show_overlay:

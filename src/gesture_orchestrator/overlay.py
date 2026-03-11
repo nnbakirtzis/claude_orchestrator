@@ -79,3 +79,46 @@ def draw_overlay(
                  cv2.FONT_HERSHEY_SIMPLEX, 0.4, COLOR_WHITE, 1)
 
     return frame
+
+
+def draw_listening_screen(
+    frame: np.ndarray,
+    partial_text: str,
+    elapsed: float,
+    timeout: float,
+) -> np.ndarray:
+    """Draw a 'listening for voice' screen. Modifies frame in-place."""
+    h, w = frame.shape[:2]
+
+    # Dim the frame
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, 0), (w, h), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+
+    # "LISTENING..." header
+    cv2.putText(frame, "LISTENING...", (w // 2 - 120, h // 3),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 200, 255), 3)
+
+    # Partial transcription
+    if partial_text:
+        # Wrap text if too long
+        max_chars = w // 12
+        lines = [partial_text[i:i + max_chars] for i in range(0, len(partial_text), max_chars)]
+        for idx, line in enumerate(lines[:3]):  # Max 3 lines
+            y_pos = h // 2 + idx * 30
+            cv2.putText(frame, line, (30, y_pos),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLOR_WHITE, 2)
+
+    # Timer bar
+    if timeout > 0:
+        progress = min(elapsed / timeout, 1.0)
+        bar_width = w - 60
+        bar_x = 30
+        bar_y = h - 50
+        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_width, bar_y + 10),
+                       (80, 80, 80), -1)
+        cv2.rectangle(frame, (bar_x, bar_y),
+                       (bar_x + int(bar_width * progress), bar_y + 10),
+                       (0, 200, 255), -1)
+
+    return frame

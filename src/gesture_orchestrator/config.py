@@ -20,8 +20,19 @@ class GestureConfig:
 
     # Hand-raised thresholds
     wrist_y_threshold: float = 0.35          # wrist must be above this (normalized, 0=top)
+    wrist_y_enter_threshold: float = 0.32    # stricter threshold for entering raised state
+    wrist_y_exit_threshold: float = 0.40     # relaxed threshold for leaving raised state
     min_extended_fingers: int = 4            # at least 4 fingers extended
     finger_extension_margin: float = 0.02    # fingertip_y must be < mcp_y - margin
+
+    # Angle-based finger detection
+    use_angle_detection: bool = True
+    finger_extension_angle_threshold: float = 160.0  # degrees, straight ~180, curled ~90
+
+    # Smoothing
+    landmark_smoothing_alpha: float = 0.4
+    gesture_confidence_alpha: float = 0.3
+    gesture_confidence_threshold: float = 0.6
 
     # Clap thresholds
     clap_distance_threshold: float = 0.08    # palm centers must be this close
@@ -36,6 +47,17 @@ class GestureConfig:
 
     # Dispatch
     project_dir: str = "."
+
+    # Interactive terminal
+    interactive_terminal: bool = True
+
+    # Voice input
+    voice_enabled: bool = True
+    voice_timeout: float = 10.0
+    voice_silence_timeout: float = 2.0
+    voice_model_path: str | None = None
+    voice_sample_rate: int = 16000
+    voice_energy_threshold: float = 300.0
 
     # Overlay
     show_overlay: bool = True
@@ -55,6 +77,13 @@ RING_MCP = 13
 PINKY_TIP = 20
 PINKY_MCP = 17
 
+# PIP joint indices (for angle-based detection)
+THUMB_IP = 3
+INDEX_PIP = 6
+MIDDLE_PIP = 10
+RING_PIP = 14
+PINKY_PIP = 18
+
 # Finger definitions: (tip_index, mcp_index)
 FINGERS = [
     (INDEX_TIP, INDEX_MCP),
@@ -62,6 +91,17 @@ FINGERS = [
     (RING_TIP, RING_MCP),
     (PINKY_TIP, PINKY_MCP),
 ]
+
+# Finger joints for angle detection: (tip, pip, mcp)
+FINGER_JOINTS = [
+    (INDEX_TIP, INDEX_PIP, INDEX_MCP),
+    (MIDDLE_TIP, MIDDLE_PIP, MIDDLE_MCP),
+    (RING_TIP, RING_PIP, RING_MCP),
+    (PINKY_TIP, PINKY_PIP, PINKY_MCP),
+]
+
+# Thumb joints for angle detection: (tip, ip, mcp)
+THUMB_JOINTS = (THUMB_TIP, THUMB_IP, THUMB_MCP)
 
 # Thumb uses x-axis comparison instead of y-axis
 THUMB = (THUMB_TIP, THUMB_MCP)
