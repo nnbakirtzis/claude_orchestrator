@@ -42,7 +42,8 @@ class Dispatcher:
 
     @property
     def busy(self) -> bool:
-        return self._busy
+        with self._lock:
+            return self._busy
 
     def dispatch(self, gesture: GestureType, prompt: str | None = None) -> bool:
         """
@@ -54,12 +55,11 @@ class Dispatcher:
         if gesture == GestureType.NONE:
             return False
 
-        if not self._lock.acquire(blocking=False):
-            logger.warning("Dispatch skipped: already running a command")
-            return False
-
-        self._busy = True
-        self._lock.release()
+        with self._lock:
+            if self._busy:
+                logger.warning("Dispatch skipped: already running a command")
+                return False
+            self._busy = True
 
         if self._config.interactive_terminal:
             thread = threading.Thread(
@@ -103,7 +103,8 @@ class Dispatcher:
             logger.exception("Unexpected error launching interactive terminal")
         finally:
             # Reset busy shortly after launch (user interacts with the terminal)
-            self._busy = False
+            with self._lock:
+                self._busy = False
 
     def _try_windows_terminal(self, prompt: str) -> bool:
         """Try launching via Windows Terminal (wt)."""
@@ -178,7 +179,8 @@ class Dispatcher:
         except Exception:
             logger.exception("Unexpected error in dispatch")
         finally:
-            self._busy = False
+            with self._lock:
+                self._busy = False
 
     def _resolve(self, gesture: GestureType, prompt: str | None = None) -> tuple[str, str]:
         """Map gesture to (agent_name, prompt)."""

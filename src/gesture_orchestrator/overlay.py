@@ -30,6 +30,7 @@ def draw_overlay(
     state: GestureState,
     triggered: GestureType | None,
     busy: bool,
+    sustain_frames: int = 15,
 ) -> np.ndarray:
     """Draw landmarks, labels, and status on frame. Modifies frame in-place."""
     h, w = frame.shape[:2]
@@ -58,7 +59,7 @@ def draw_overlay(
     candidate = state.current_candidate
     if candidate != GestureType.NONE:
         label = GESTURE_LABELS.get(candidate, "")
-        progress = f"{state.sustain_count}/15"
+        progress = f"{state.sustain_count}/{sustain_frames}"
         cv2.putText(frame, f"{label} [{progress}]", (10, 30),
                      cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLOR_WHITE, 2)
 

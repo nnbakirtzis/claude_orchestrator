@@ -188,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
 
             # Overlay
             if config.show_overlay:
-                draw_overlay(frame, hands, state, triggered, dispatcher.busy)
+                draw_overlay(frame, hands, state, triggered, dispatcher.busy, config.sustain_frames)
                 cv2.imshow("Gesture Orchestrator", frame)
 
                 key = cv2.waitKey(1) & 0xFF
