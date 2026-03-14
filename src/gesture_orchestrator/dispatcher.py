@@ -61,6 +61,13 @@ class Dispatcher:
                 return False
             self._busy = True
 
+        logger.debug(
+            "Dispatching gesture=%s interactive=%s project_dir=%s",
+            gesture.name,
+            self._config.interactive_terminal,
+            self._project_dir,
+        )
+
         if self._config.interactive_terminal:
             thread = threading.Thread(
                 target=self._run_interactive,
@@ -88,6 +95,7 @@ class Dispatcher:
         try:
             agent_name, resolved_prompt = self._resolve(gesture, prompt)
             logger.info("Opening interactive terminal: %s → agent=%s", gesture.name, agent_name)
+            logger.debug("Prompt: %s", resolved_prompt)
 
             launched = self._try_windows_terminal(resolved_prompt)
             if not launched:
@@ -110,16 +118,19 @@ class Dispatcher:
         """Try launching via Windows Terminal (wt)."""
         wt = shutil.which("wt")
         if not wt:
+            logger.debug("Windows Terminal (wt) not found on PATH")
             return False
 
         try:
             escaped_prompt = prompt.replace('"', '\\"')
+            cmd = [
+                wt, "-d", self._project_dir,
+                "cmd", "/k",
+                f'claude "{escaped_prompt}"',
+            ]
+            logger.debug("Launching Windows Terminal: %s", cmd)
             subprocess.Popen(
-                [
-                    wt, "-d", self._project_dir,
-                    "cmd", "/k",
-                    f'claude -p "{escaped_prompt}"',
-                ],
+                cmd,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
             )
             return True
@@ -131,10 +142,9 @@ class Dispatcher:
         """Fallback: open via cmd.exe start command."""
         try:
             escaped_prompt = prompt.replace('"', '\\"')
-            subprocess.Popen(
-                f'start cmd /k "cd /d {self._project_dir} && claude -p \\"{escaped_prompt}\\""',
-                shell=True,
-            )
+            cmd = f'start cmd /k "cd /d {self._project_dir} && claude \\"{escaped_prompt}\\""'
+            logger.debug("Launching cmd fallback: %s", cmd)
+            subprocess.Popen(cmd, shell=True)
             return True
         except Exception:
             logger.exception("Failed to launch cmd terminal")
