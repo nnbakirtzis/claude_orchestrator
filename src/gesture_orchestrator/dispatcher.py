@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 import subprocess
@@ -44,6 +43,11 @@ class Dispatcher:
     def busy(self) -> bool:
         with self._lock:
             return self._busy
+
+    def _build_full_prompt(self, agent_name: str, task_prompt: str) -> str:
+        """Build a full prompt with agent role context."""
+        role = AGENTS[agent_name]["prompt"]
+        return f"[Role: {agent_name}] {role}\n\nTask: {task_prompt}"
 
     def dispatch(self, gesture: GestureType, prompt: str | None = None) -> bool:
         """
@@ -94,12 +98,13 @@ class Dispatcher:
         """Open an interactive Claude Code terminal window."""
         try:
             agent_name, resolved_prompt = self._resolve(gesture, prompt)
+            full_prompt = self._build_full_prompt(agent_name, resolved_prompt)
             logger.info("Opening interactive terminal: %s → agent=%s", gesture.name, agent_name)
-            logger.debug("Prompt: %s", resolved_prompt)
+            logger.debug("Prompt: %s", full_prompt)
 
-            launched = self._try_windows_terminal(resolved_prompt)
+            launched = self._try_windows_terminal(full_prompt)
             if not launched:
-                launched = self._try_cmd(resolved_prompt)
+                launched = self._try_cmd(full_prompt)
 
             if launched:
                 logger.info("Interactive terminal opened for %s", agent_name)
@@ -154,18 +159,16 @@ class Dispatcher:
         """Execute the Claude CLI command in a background thread (original behavior)."""
         try:
             agent_name, resolved_prompt = self._resolve(gesture, prompt)
-            agents_json = json.dumps(AGENTS)
+            full_prompt = self._build_full_prompt(agent_name, resolved_prompt)
 
             cmd = [
                 "claude",
                 "--print",
-                "--agents", agents_json,
-                "--agent", agent_name,
-                resolved_prompt,
+                full_prompt,
             ]
 
             logger.info("Dispatching %s → agent=%s", gesture.name, agent_name)
-            logger.debug("Command: %s", " ".join(cmd))
+            logger.debug("Command: %s", cmd)
 
             result = subprocess.run(
                 cmd,

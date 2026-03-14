@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import signal
 import sys
 
@@ -65,7 +66,41 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--voice-timeout", type=float, default=10.0,
         help="Maximum voice recording duration in seconds (default: 10.0)",
     )
+    parser.add_argument(
+        "--no-setup", action="store_true",
+        help="Skip the interactive startup screen",
+    )
     return parser.parse_args(argv)
+
+
+def _resolve_project_dir(cli_value: str) -> str:
+    """Prompt user for project directory if not explicitly set via CLI."""
+    print()
+    print("=" * 60)
+    print("  Gesture Orchestrator - Setup")
+    print("=" * 60)
+    print()
+    print("  Controls:")
+    print("    Left hand raised  -> Planner agent")
+    print("    Right hand raised -> Coder agent")
+    print("    Clap              -> Sync / execute")
+    print()
+
+    default_dir = os.path.abspath(cli_value)
+
+    while True:
+        user_input = input(f"  Project directory [{default_dir}]: ").strip()
+        chosen = user_input if user_input else default_dir
+        chosen = os.path.abspath(os.path.expanduser(chosen))
+
+        if os.path.isdir(chosen):
+            print(f"  Using: {chosen}")
+            print()
+            return chosen
+        else:
+            print(f"  Directory not found: {chosen}")
+            print("  Please enter a valid directory path.")
+            print()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -79,12 +114,18 @@ def main(argv: list[str] | None = None) -> int:
         datefmt="%H:%M:%S",
     )
 
+    # Resolve project directory
+    if args.no_setup:
+        project_dir = os.path.abspath(args.project_dir)
+    else:
+        project_dir = _resolve_project_dir(args.project_dir)
+
     config = GestureConfig(
         camera_index=args.device,
         raise_cooldown=args.cooldown,
         show_overlay=not args.no_overlay,
         debug=args.debug,
-        project_dir=args.project_dir,
+        project_dir=project_dir,
         model_path=args.model,
         interactive_terminal=not args.no_terminal,
         voice_enabled=not args.no_voice,

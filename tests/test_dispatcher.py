@@ -33,9 +33,13 @@ class TestDispatcher:
             mock_run.assert_called_once()
             call_args = mock_run.call_args
             cmd = call_args[0][0]
-            assert "claude" in cmd[0]
-            assert "--agent" in cmd
-            assert "planner" in cmd
+            assert cmd[0] == "claude"
+            assert "--print" in cmd
+            # Agent role is embedded in prompt text, not as CLI flags
+            prompt_arg = cmd[-1]
+            assert "planner" in prompt_arg.lower()
+            assert "--agents" not in cmd
+            assert "--agent" not in cmd
             assert call_args[1]["cwd"] == "/tmp/test"
 
     def test_dispatch_coder(self):
@@ -52,7 +56,8 @@ class TestDispatcher:
             dispatcher.wait(timeout=5.0)
 
             cmd = mock_run.call_args[0][0]
-            assert "coder" in cmd
+            prompt_arg = cmd[-1]
+            assert "coder" in prompt_arg.lower()
 
     def test_dispatch_sync(self):
         dispatcher = self._make_dispatcher()
@@ -120,7 +125,23 @@ class TestDispatcher:
             dispatcher.wait(timeout=5.0)
 
             cmd = mock_run.call_args[0][0]
-            assert "Build a REST API" in cmd
+            prompt_arg = cmd[-1]
+            assert "Build a REST API" in prompt_arg
+
+    def test_background_does_not_use_agents_flag(self):
+        dispatcher = self._make_dispatcher()
+
+        with patch("gesture_orchestrator.dispatcher.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="Done", stderr=""
+            )
+            dispatcher.dispatch(GestureType.PLANNER_ACTIVATE)
+            dispatcher.wait(timeout=5.0)
+
+            cmd = mock_run.call_args[0][0]
+            assert "--agents" not in cmd
+            assert "--agent" not in cmd
+            assert "--print" in cmd
 
 
 class TestInteractiveDispatcher:
@@ -135,14 +156,18 @@ class TestInteractiveDispatcher:
 
         with patch("gesture_orchestrator.dispatcher.shutil.which", return_value="C:\\wt.exe"):
             with patch("gesture_orchestrator.dispatcher.subprocess.Popen") as mock_popen:
-                result = dispatcher.dispatch(GestureType.PLANNER_ACTIVATE)
-                assert result is True
-                dispatcher.wait(timeout=5.0)
+                with patch("gesture_orchestrator.dispatcher.subprocess.CREATE_NEW_PROCESS_GROUP", 0x200, create=True):
+                    result = dispatcher.dispatch(GestureType.PLANNER_ACTIVATE)
+                    assert result is True
+                    dispatcher.wait(timeout=5.0)
 
-                mock_popen.assert_called_once()
-                call_args = mock_popen.call_args[0][0]
-                assert "C:\\wt.exe" in call_args
-                assert "-d" in call_args
+                    mock_popen.assert_called_once()
+                    call_args = mock_popen.call_args[0][0]
+                    assert "C:\\wt.exe" in call_args
+                    assert "-d" in call_args
+                    # Must NOT use -p (print mode)
+                    cmd_str = " ".join(str(a) for a in call_args)
+                    assert "claude -p " not in cmd_str
 
     def test_dispatch_falls_back_to_cmd(self):
         dispatcher = self._make_dispatcher()
@@ -156,28 +181,35 @@ class TestInteractiveDispatcher:
                 # Should have used shell=True (cmd fallback)
                 mock_popen.assert_called_once()
                 assert mock_popen.call_args[1].get("shell") is True
+                # Must NOT use -p (print mode)
+                cmd_str = mock_popen.call_args[0][0]
+                assert "claude -p " not in cmd_str
+                assert "claude" in cmd_str
 
     def test_dispatch_with_custom_prompt(self):
         dispatcher = self._make_dispatcher()
 
         with patch("gesture_orchestrator.dispatcher.shutil.which", return_value="C:\\wt.exe"):
             with patch("gesture_orchestrator.dispatcher.subprocess.Popen") as mock_popen:
-                result = dispatcher.dispatch(
-                    GestureType.CODER_ACTIVATE, prompt="Fix the login bug"
-                )
-                assert result is True
-                dispatcher.wait(timeout=5.0)
+                with patch("gesture_orchestrator.dispatcher.subprocess.CREATE_NEW_PROCESS_GROUP", 0x200, create=True):
+                    result = dispatcher.dispatch(
+                        GestureType.CODER_ACTIVATE, prompt="Fix the login bug"
+                    )
+                    assert result is True
+                    dispatcher.wait(timeout=5.0)
 
-                call_args = mock_popen.call_args[0][0]
-                # The prompt should appear in the command
-                cmd_str = " ".join(str(a) for a in call_args)
-                assert "Fix the login bug" in cmd_str
+                    call_args = mock_popen.call_args[0][0]
+                    # The prompt should appear in the command
+                    cmd_str = " ".join(str(a) for a in call_args)
+                    assert "Fix the login bug" in cmd_str
+                    assert "claude -p " not in cmd_str
 
     def test_interactive_resets_busy_after_launch(self):
         dispatcher = self._make_dispatcher()
 
         with patch("gesture_orchestrator.dispatcher.shutil.which", return_value="C:\\wt.exe"):
             with patch("gesture_orchestrator.dispatcher.subprocess.Popen"):
-                dispatcher.dispatch(GestureType.PLANNER_ACTIVATE)
-                dispatcher.wait(timeout=5.0)
-                assert dispatcher.busy is False
+                with patch("gesture_orchestrator.dispatcher.subprocess.CREATE_NEW_PROCESS_GROUP", 0x200, create=True):
+                    dispatcher.dispatch(GestureType.PLANNER_ACTIVATE)
+                    dispatcher.wait(timeout=5.0)
+                    assert dispatcher.busy is False
